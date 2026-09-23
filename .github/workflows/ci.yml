@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.preset }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [debug, asan, tsan]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y g++-10 ninja-build
+
+      # The runner kernel randomizes mmap addresses with 32 bits of entropy; the
+      # sanitizer runtimes shipped with GCC 10 expect at most 28 and crash at startup.
+      - name: Reduce mmap randomization for sanitizers
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --build --preset ${{ matrix.preset }}
+      - run: ctest --preset ${{ matrix.preset }}
+
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same pinned versions as local development, so formatting never differs.
+      - name: Install toolchain
+        run: |
+          sudo apt-get update && sudo apt-get install -y g++-10 ninja-build
+          pip install clang-format==18.1.8 clang-tidy==18.1.8
+
+      - name: clang-format
+        run: clang-format --dry-run --Werror $(git ls-files '*.cpp' '*.hpp')
+
+      # Configuring generates compile_commands.json and fetches the GoogleTest headers.
+      - name: clang-tidy
+        run: |
+          cmake --preset debug
+          clang-tidy -p build/debug $(git ls-files 'src/*.cpp' 'tests/*.cpp')
