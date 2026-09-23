@@ -13,10 +13,12 @@ target_compile_options(rtbus_warnings INTERFACE -Wall -Wextra -Wpedantic -Werror
 
 add_library(rtbus
   src/file_descriptor.cpp
+  src/shared_memory_region.cpp
 )
 add_library(rtbus::rtbus ALIAS rtbus)
 target_include_directories(rtbus PUBLIC include)
-target_link_libraries(rtbus PRIVATE rtbus_warnings)
+# librt provides shm_open on glibc < 2.34 (Ubuntu 20.04 ships 2.31).
+target_link_libraries(rtbus PRIVATE rtbus_warnings rt)
 
 option(RTBUS_BUILD_TESTS "Build the rtbus test suite" ON)
 if(RTBUS_BUILD_TESTS)
