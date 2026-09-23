@@ -46,7 +46,7 @@ SharedMemoryRegion SharedMemoryRegion::create(const std::string& name, std::size
   if (data == MAP_FAILED) {
     unlink_and_throw(name, "mmap(" + name + ")");
   }
-  return SharedMemoryRegion(name, data, size, /*owner=*/true);
+  return {name, data, size, /*owner=*/true};
 }
 
 SharedMemoryRegion SharedMemoryRegion::open(const std::string& name) {
@@ -63,7 +63,7 @@ SharedMemoryRegion SharedMemoryRegion::open(const std::string& name) {
   if (data == MAP_FAILED) {
     throw_errno("mmap(" + name + ")");
   }
-  return SharedMemoryRegion(name, data, size, /*owner=*/false);
+  return {name, data, size, /*owner=*/false};
 }
 
 SharedMemoryRegion::SharedMemoryRegion(std::string name, void* data, std::size_t size,
