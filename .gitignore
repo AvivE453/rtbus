@@ -1,0 +1,8 @@
+# Build output
+build/
+compile_commands.json
+.cache/
+
+# Local agent instructions (not part of the project)
+CLAUDE.md
+AGENTS.md
