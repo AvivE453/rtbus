@@ -38,11 +38,11 @@ TEST(SharedMemoryRegionTest, CreateFailsIfNameAlreadyExists) {
   const auto name = unique_name();
   auto first = SharedMemoryRegion::create(name, 64);
 
-  EXPECT_THROW(SharedMemoryRegion::create(name, 64), std::system_error);
+  EXPECT_THROW(static_cast<void>(SharedMemoryRegion::create(name, 64)), std::system_error);
 }
 
 TEST(SharedMemoryRegionTest, OpenFailsIfNameDoesNotExist) {
-  EXPECT_THROW(SharedMemoryRegion::open(unique_name()), std::system_error);
+  EXPECT_THROW(static_cast<void>(SharedMemoryRegion::open(unique_name())), std::system_error);
 }
 
 TEST(SharedMemoryRegionTest, OpenedRegionSharesMemoryWithCreator) {
@@ -79,6 +79,8 @@ TEST(SharedMemoryRegionTest, MoveTransfersOwnershipOfName) {
   auto source = SharedMemoryRegion::create(name, 64);
   {
     SharedMemoryRegion target(std::move(source));
+    // Moved-from state is part of the contract.
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     EXPECT_EQ(source.data(), nullptr);
     EXPECT_TRUE(exists(name));
   }

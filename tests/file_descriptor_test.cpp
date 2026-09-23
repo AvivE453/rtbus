@@ -40,6 +40,8 @@ TEST(FileDescriptorTest, MoveConstructionTransfersOwnership) {
 
   FileDescriptor target(std::move(source));
 
+  // Moved-from state is part of the contract.
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   EXPECT_FALSE(source.valid());
   EXPECT_EQ(target.get(), raw);
   EXPECT_TRUE(is_open(raw));
@@ -55,6 +57,8 @@ TEST(FileDescriptorTest, MoveAssignmentClosesPreviousDescriptor) {
 
   EXPECT_FALSE(is_open(first));
   EXPECT_EQ(target.get(), second);
+  // Moved-from state is part of the contract.
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   EXPECT_FALSE(source.valid());
 }
 

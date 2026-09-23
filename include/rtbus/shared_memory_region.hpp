@@ -12,8 +12,9 @@ namespace rtbus {
 class SharedMemoryRegion {
  public:
   // Fails if `name` already exists, so two creators can never share a region by accident.
-  static SharedMemoryRegion create(const std::string& name, std::size_t size);
-  static SharedMemoryRegion open(const std::string& name);
+  // [[nodiscard]]: a discarded result would unlink the region it just created.
+  [[nodiscard]] static SharedMemoryRegion create(const std::string& name, std::size_t size);
+  [[nodiscard]] static SharedMemoryRegion open(const std::string& name);
 
   ~SharedMemoryRegion();
 
@@ -22,9 +23,9 @@ class SharedMemoryRegion {
   SharedMemoryRegion(SharedMemoryRegion&& other) noexcept;
   SharedMemoryRegion& operator=(SharedMemoryRegion&& other) noexcept;
 
-  void* data() const noexcept { return data_; }
-  std::size_t size() const noexcept { return size_; }
-  const std::string& name() const noexcept { return name_; }
+  [[nodiscard]] void* data() const noexcept { return data_; }
+  [[nodiscard]] std::size_t size() const noexcept { return size_; }
+  [[nodiscard]] const std::string& name() const noexcept { return name_; }
 
  private:
   SharedMemoryRegion(std::string name, void* data, std::size_t size, bool owner) noexcept;
