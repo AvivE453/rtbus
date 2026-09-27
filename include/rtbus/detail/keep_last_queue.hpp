@@ -10,7 +10,7 @@
 
 namespace rtbus::detail {
 
-// A fixed-capacity FIFO queue that never blocks the producer: when full, a push
+// A fixed-capacity FIFO queue whose producer never waits for the consumer: when full, a push
 // overwrites the oldest message and counts it as dropped. All storage is allocated
 // in the constructor, so push() and pop() never allocate.
 template <typename T>

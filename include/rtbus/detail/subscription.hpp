@@ -12,7 +12,8 @@ namespace rtbus::detail {
 
 // One subscriber's delivery machinery: a KeepLastQueue plus a dedicated thread that
 // pops messages and runs the callback. deliver() is called from the publishing
-// thread and never blocks; the callback always runs on this subscription's thread.
+// thread and never waits for the callback; the callback always runs on this subscription's
+// thread.
 //
 // Neither copyable nor movable: the worker thread holds `this`.
 template <typename T>

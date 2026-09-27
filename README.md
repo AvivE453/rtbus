@@ -25,11 +25,13 @@ rtbus::Node node("estimator");
 auto subscriber = node.subscribe<Pose>("pose", [](const Pose& pose) { /* ... */ });
 
 auto publisher = node.advertise<Pose>("pose");
-publisher.publish(Pose{1.0, 2.0});  // never blocks
+publisher.publish(Pose{1.0, 2.0});  // does not wait for subscribers
 ```
 
-Each subscriber has a fixed-capacity queue and a dedicated thread, so a slow subscriber never
-delays the publisher or other subscribers. When a subscriber's queue is full, the oldest message
+Each subscriber has a fixed-capacity queue and a dedicated thread, so a slow subscriber fills only
+its own queue: the publisher and other subscribers do not wait for it. Queues are currently guarded
+by a mutex, so a publisher can still wait briefly for a lock; the lock-free ring buffer of phase 2
+removes that. When a subscriber's queue is full, the oldest message
 is overwritten and counted in `subscriber.dropped()`. Message types must be trivially copyable
 (plain structs), which is checked at compile time.
 

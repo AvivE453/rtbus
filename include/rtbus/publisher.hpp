@@ -10,7 +10,8 @@ namespace rtbus {
 class Node;
 
 // Sends messages of type T on one topic. Created by Node::advertise().
-// publish() copies the message into every current subscriber's queue and never blocks.
+// publish() copies the message into every current subscriber's queue. It never waits for a
+// subscriber to process messages, only (briefly) for the queue mutexes.
 template <typename T>
 class Publisher {
  public:
