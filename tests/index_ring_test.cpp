@@ -27,7 +27,17 @@ TEST(IndexRingTest, CapacityOutsideRangeIsRejected) {
 TEST(IndexRingTest, PopFromEmptyRingReturnsNothing) {
   IndexRing ring(4);
 
+  EXPECT_TRUE(ring.empty());
   EXPECT_EQ(ring.pop(), std::nullopt);
+}
+
+TEST(IndexRingTest, EmptyTracksPushesAndPops) {
+  IndexRing ring(2);
+  EXPECT_EQ(ring.push(1), std::nullopt);
+  EXPECT_FALSE(ring.empty());
+
+  EXPECT_EQ(ring.pop(), 1u);
+  EXPECT_TRUE(ring.empty());
 }
 
 TEST(IndexRingTest, PopReturnsIndicesInFifoOrder) {

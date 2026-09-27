@@ -15,7 +15,9 @@ add_library(rtbus
   src/byte_lock.cpp
   src/file_descriptor.cpp
   src/segment.cpp
+  src/segment_connection.cpp
   src/shared_memory_region.cpp
+  src/shm_publisher.cpp
   src/topic_registry.cpp
   src/wake_signal.cpp
 )

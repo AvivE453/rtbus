@@ -85,6 +85,14 @@ class IndexRing {
     return std::nullopt;
   }
 
+  // Consumer only.
+  [[nodiscard]] bool empty() const {
+    // Acquire, as in pop(). head_ needs no ordering: only our own pops and the producer's
+    // evictions move it, and a stale value is possible only while the ring is full, where it
+    // still reads as non-empty.
+    return head_.load(std::memory_order_relaxed) == tail_.load(std::memory_order_acquire);
+  }
+
   // Indices evicted by push() because the consumer fell behind.
   [[nodiscard]] std::uint64_t dropped() const { return dropped_.load(std::memory_order_relaxed); }
 

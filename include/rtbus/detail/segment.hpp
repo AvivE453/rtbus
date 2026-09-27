@@ -66,6 +66,11 @@ inline constexpr std::uint32_t kMaxLoans = 2;
 inline constexpr std::uint32_t kChunkCount =
     kMaxSubscribers * (IndexRing::kMaxCapacity + 1) + kMaxLoans;
 
+// Byte locks on the segment file (see byte_lock.hpp) mark who is alive: the publisher holds
+// byte 0 for as long as it runs, and the subscriber in slot i holds byte 1 + i.
+inline constexpr std::uint32_t kPublisherLockByte = 0;
+inline constexpr std::uint32_t slot_lock_byte(std::uint32_t slot) { return 1 + slot; }
+
 // "/rtbus.<topic>". Throws std::invalid_argument unless the topic is 1 to 200 characters of
 // [A-Za-z0-9_.-]: the name becomes a file name in /dev/shm.
 std::string segment_name(const std::string& topic);

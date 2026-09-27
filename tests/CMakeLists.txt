@@ -21,6 +21,7 @@ add_executable(rtbus_tests
   node_test.cpp
   segment_test.cpp
   shared_memory_region_test.cpp
+  shm_transport_test.cpp
   subscription_test.cpp
   wake_signal_test.cpp
 )
