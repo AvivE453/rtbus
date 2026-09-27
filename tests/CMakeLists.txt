@@ -20,6 +20,7 @@ add_executable(rtbus_tests
   node_test.cpp
   shared_memory_region_test.cpp
   subscription_test.cpp
+  wake_signal_test.cpp
 )
 target_link_libraries(rtbus_tests PRIVATE rtbus::rtbus rtbus_warnings GTest::gtest_main)
 # A test that deadlocks fails after 30 s instead of hanging the run.

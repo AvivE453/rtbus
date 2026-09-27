@@ -15,6 +15,7 @@ add_library(rtbus
   src/file_descriptor.cpp
   src/shared_memory_region.cpp
   src/topic_registry.cpp
+  src/wake_signal.cpp
 )
 add_library(rtbus::rtbus ALIAS rtbus)
 target_include_directories(rtbus PUBLIC include)
