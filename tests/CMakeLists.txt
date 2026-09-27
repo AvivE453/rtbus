@@ -15,6 +15,8 @@ add_executable(rtbus_tests
   file_descriptor_test.cpp
   keep_last_queue_test.cpp
   shared_memory_region_test.cpp
+  subscription_test.cpp
 )
 target_link_libraries(rtbus_tests PRIVATE rtbus::rtbus rtbus_warnings GTest::gtest_main)
-gtest_discover_tests(rtbus_tests)
+# A test that deadlocks fails after 30 s instead of hanging the run.
+gtest_discover_tests(rtbus_tests PROPERTIES TIMEOUT 30)
