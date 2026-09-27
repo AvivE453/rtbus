@@ -13,6 +13,7 @@ include(GoogleTest)
 
 add_executable(rtbus_tests
   file_descriptor_test.cpp
+  keep_last_queue_test.cpp
   shared_memory_region_test.cpp
 )
 target_link_libraries(rtbus_tests PRIVATE rtbus::rtbus rtbus_warnings GTest::gtest_main)
