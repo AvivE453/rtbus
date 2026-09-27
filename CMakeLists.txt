@@ -12,6 +12,7 @@ add_library(rtbus_warnings INTERFACE)
 target_compile_options(rtbus_warnings INTERFACE -Wall -Wextra -Wpedantic -Werror)
 
 add_library(rtbus
+  src/byte_lock.cpp
   src/file_descriptor.cpp
   src/segment.cpp
   src/shared_memory_region.cpp
