@@ -11,14 +11,10 @@
 #include <system_error>
 #include <utility>
 
+#include "unique_shm_name.hpp"
+
 namespace rtbus {
 namespace {
-
-// ctest runs each test in its own process, so the pid keeps names unique across parallel runs.
-std::string unique_name() {
-  static int counter = 0;
-  return "/rtbus_test_" + std::to_string(::getpid()) + "_" + std::to_string(counter++);
-}
 
 bool exists(const std::string& name) { return ::access(("/dev/shm" + name).c_str(), F_OK) == 0; }
 
@@ -27,7 +23,7 @@ std::uint8_t* bytes(const SharedMemoryRegion& region) {
 }
 
 TEST(SharedMemoryRegionTest, CreateMapsZeroedMemoryOfRequestedSize) {
-  auto region = SharedMemoryRegion::create(unique_name(), 4096);
+  auto region = SharedMemoryRegion::create(test_support::unique_shm_name(), 4096);
 
   ASSERT_EQ(region.size(), 4096u);
   EXPECT_TRUE(std::all_of(bytes(region), bytes(region) + region.size(),
@@ -35,18 +31,19 @@ TEST(SharedMemoryRegionTest, CreateMapsZeroedMemoryOfRequestedSize) {
 }
 
 TEST(SharedMemoryRegionTest, CreateFailsIfNameAlreadyExists) {
-  const auto name = unique_name();
+  const auto name = test_support::unique_shm_name();
   auto first = SharedMemoryRegion::create(name, 64);
 
   EXPECT_THROW(static_cast<void>(SharedMemoryRegion::create(name, 64)), std::system_error);
 }
 
 TEST(SharedMemoryRegionTest, OpenFailsIfNameDoesNotExist) {
-  EXPECT_THROW(static_cast<void>(SharedMemoryRegion::open(unique_name())), std::system_error);
+  EXPECT_THROW(static_cast<void>(SharedMemoryRegion::open(test_support::unique_shm_name())),
+               std::system_error);
 }
 
 TEST(SharedMemoryRegionTest, OpenedRegionSharesMemoryWithCreator) {
-  const auto name = unique_name();
+  const auto name = test_support::unique_shm_name();
   auto creator = SharedMemoryRegion::create(name, 64);
   auto opener = SharedMemoryRegion::open(name);
 
@@ -58,7 +55,7 @@ TEST(SharedMemoryRegionTest, OpenedRegionSharesMemoryWithCreator) {
 }
 
 TEST(SharedMemoryRegionTest, CreatorUnlinksNameOnDestruction) {
-  const auto name = unique_name();
+  const auto name = test_support::unique_shm_name();
   {
     auto region = SharedMemoryRegion::create(name, 64);
     EXPECT_TRUE(exists(name));
@@ -67,7 +64,7 @@ TEST(SharedMemoryRegionTest, CreatorUnlinksNameOnDestruction) {
 }
 
 TEST(SharedMemoryRegionTest, OpenerDoesNotUnlinkName) {
-  const auto name = unique_name();
+  const auto name = test_support::unique_shm_name();
   auto creator = SharedMemoryRegion::create(name, 64);
   { auto opener = SharedMemoryRegion::open(name); }
 
@@ -75,7 +72,7 @@ TEST(SharedMemoryRegionTest, OpenerDoesNotUnlinkName) {
 }
 
 TEST(SharedMemoryRegionTest, MoveTransfersOwnershipOfName) {
-  const auto name = unique_name();
+  const auto name = test_support::unique_shm_name();
   auto source = SharedMemoryRegion::create(name, 64);
   {
     SharedMemoryRegion target(std::move(source));
@@ -94,7 +91,7 @@ TEST(SharedMemoryRegionTest, ForkedChildReadsParentWritesAndReplies) {
   constexpr char kRequest[] = "hello from parent";
   constexpr char kReply[] = "hello from child";
   constexpr std::size_t kReplyOffset = 1024;
-  const auto name = unique_name();
+  const auto name = test_support::unique_shm_name();
   auto region = SharedMemoryRegion::create(name, 4096);
   std::memcpy(region.data(), kRequest, sizeof(kRequest));
 

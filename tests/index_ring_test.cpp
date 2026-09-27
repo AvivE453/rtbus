@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "rtbus/shared_memory_region.hpp"
+#include "unique_shm_name.hpp"
 
 namespace rtbus::detail {
 namespace {
@@ -120,7 +121,7 @@ struct CrossProcessState {
 // pointers instead of indices would break.
 TEST(IndexRingTest, ProducerAndConsumerInSeparateProcesses) {
   constexpr std::uint32_t kIndices = 100'000;
-  const std::string name = "/rtbus_test_index_ring_" + std::to_string(::getpid());
+  const std::string name = test_support::unique_shm_name();
   auto region = SharedMemoryRegion::create(name, sizeof(CrossProcessState));
   auto* state = new (region.data()) CrossProcessState;
 
