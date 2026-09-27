@@ -18,6 +18,7 @@ add_executable(rtbus_tests
   keep_last_queue_test.cpp
   message_type_test.cpp
   node_test.cpp
+  segment_test.cpp
   shared_memory_region_test.cpp
   subscription_test.cpp
   wake_signal_test.cpp
