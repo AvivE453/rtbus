@@ -16,6 +16,7 @@ add_executable(rtbus_tests
   file_descriptor_test.cpp
   index_ring_test.cpp
   keep_last_queue_test.cpp
+  message_type_test.cpp
   node_test.cpp
   shared_memory_region_test.cpp
   subscription_test.cpp
