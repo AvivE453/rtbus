@@ -12,6 +12,7 @@ FetchContent_MakeAvailable(googletest)
 include(GoogleTest)
 
 add_executable(rtbus_tests
+  chunk_pool_test.cpp
   file_descriptor_test.cpp
   index_ring_test.cpp
   keep_last_queue_test.cpp
