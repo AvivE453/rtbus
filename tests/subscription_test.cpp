@@ -3,40 +3,18 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
-#include <condition_variable>
 #include <future>
-#include <mutex>
 #include <thread>
 #include <vector>
+
+#include "collector.hpp"
 
 namespace rtbus::detail {
 namespace {
 
 constexpr auto kTimeout = std::chrono::seconds(5);
 
-// Collects callback values from the subscription thread and lets the test wait for them.
-// It waits without a timeout on purpose: GCC 10's ThreadSanitizer does not intercept the
-// pthread_cond_clockwait call behind condition_variable::wait_for, and reports a false
-// "double lock". A hang still fails the test through the ctest TIMEOUT instead.
-class Collector {
- public:
-  void add(int value) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    values_.push_back(value);
-    changed_.notify_all();
-  }
-
-  std::vector<int> wait_until_count(std::size_t count) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    changed_.wait(lock, [&] { return values_.size() >= count; });
-    return values_;
-  }
-
- private:
-  std::mutex mutex_;
-  std::condition_variable changed_;
-  std::vector<int> values_;
-};
+using Collector = test_support::Collector<int>;
 
 TEST(SubscriptionTest, CallbackReceivesDeliveredMessagesInOrder) {
   Collector collector;

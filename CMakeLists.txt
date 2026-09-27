@@ -14,6 +14,7 @@ target_compile_options(rtbus_warnings INTERFACE -Wall -Wextra -Wpedantic -Werror
 add_library(rtbus
   src/file_descriptor.cpp
   src/shared_memory_region.cpp
+  src/topic_registry.cpp
 )
 add_library(rtbus::rtbus ALIAS rtbus)
 target_include_directories(rtbus PUBLIC include)
