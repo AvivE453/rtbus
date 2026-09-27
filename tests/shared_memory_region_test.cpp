@@ -1,6 +1,9 @@
 #include "rtbus/shared_memory_region.hpp"
 
+#include <fcntl.h>
 #include <gtest/gtest.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -79,8 +82,42 @@ TEST(SharedMemoryRegionTest, MoveTransfersOwnershipOfName) {
     // Moved-from state is part of the contract.
     // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     EXPECT_EQ(source.data(), nullptr);
+    EXPECT_EQ(source.fd(), -1);  // NOLINT(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     EXPECT_TRUE(exists(name));
   }
+  EXPECT_FALSE(exists(name));
+}
+
+TEST(SharedMemoryRegionTest, RegionKeepsItsDescriptorOpen) {
+  auto region = SharedMemoryRegion::create(test_support::unique_shm_name(), 4096);
+
+  struct stat info {};
+  ASSERT_EQ(::fstat(region.fd(), &info), 0);
+  EXPECT_EQ(static_cast<std::size_t>(info.st_size), region.size());
+}
+
+TEST(SharedMemoryRegionTest, MapAdoptsDescriptorAndOwnership) {
+  const auto name = test_support::unique_shm_name();
+  FileDescriptor fd(::shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600));
+  ASSERT_TRUE(fd.valid());
+  ASSERT_EQ(::ftruncate(fd.get(), 128), 0);
+  const int raw_fd = fd.get();
+  {
+    auto region = SharedMemoryRegion::map(name, std::move(fd), /*owner=*/true);
+    EXPECT_EQ(region.size(), 128u);
+    EXPECT_EQ(region.fd(), raw_fd);
+  }
+  EXPECT_FALSE(exists(name));
+}
+
+TEST(SharedMemoryRegionTest, FailedMapByOwnerRemovesTheName) {
+  const auto name = test_support::unique_shm_name();
+  FileDescriptor fd(::shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600));
+  ASSERT_TRUE(fd.valid());
+
+  // An empty object cannot be mapped.
+  EXPECT_THROW(static_cast<void>(SharedMemoryRegion::map(name, std::move(fd), /*owner=*/true)),
+               std::system_error);
   EXPECT_FALSE(exists(name));
 }
 

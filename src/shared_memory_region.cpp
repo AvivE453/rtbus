@@ -9,8 +9,6 @@
 #include <system_error>
 #include <utility>
 
-#include "rtbus/file_descriptor.hpp"
-
 namespace rtbus {
 namespace {
 
@@ -25,14 +23,16 @@ namespace {
   throw std::system_error(error, std::generic_category(), what);
 }
 
-void* map_shared(int fd, std::size_t size) {
-  return ::mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+// An owner's name is removed on failure, as in create(); anyone else's is left alone.
+[[noreturn]] void fail_to_map(const std::string& name, bool owner, const std::string& call) {
+  const std::string what = call + "(" + name + ")";
+  if (owner) {
+    unlink_and_throw(name, what);
+  }
+  throw_errno(what);
 }
 
 }  // namespace
-
-// In both factories the descriptor is closed on return: the mapping alone keeps
-// the memory alive, so there is no reason to hold an fd for the region's lifetime.
 
 SharedMemoryRegion SharedMemoryRegion::create(const std::string& name, std::size_t size) {
   FileDescriptor fd(::shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600));
@@ -42,11 +42,7 @@ SharedMemoryRegion SharedMemoryRegion::create(const std::string& name, std::size
   if (::ftruncate(fd.get(), static_cast<off_t>(size)) != 0) {
     unlink_and_throw(name, "ftruncate(" + name + ")");
   }
-  void* data = map_shared(fd.get(), size);
-  if (data == MAP_FAILED) {
-    unlink_and_throw(name, "mmap(" + name + ")");
-  }
-  return {name, data, size, /*owner=*/true};
+  return map(name, std::move(fd), /*owner=*/true);
 }
 
 SharedMemoryRegion SharedMemoryRegion::open(const std::string& name) {
@@ -54,26 +50,31 @@ SharedMemoryRegion SharedMemoryRegion::open(const std::string& name) {
   if (!fd.valid()) {
     throw_errno("shm_open(" + name + ")");
   }
-  struct stat info {};
-  if (::fstat(fd.get(), &info) != 0) {
-    throw_errno("fstat(" + name + ")");
-  }
-  const auto size = static_cast<std::size_t>(info.st_size);
-  void* data = map_shared(fd.get(), size);
-  if (data == MAP_FAILED) {
-    throw_errno("mmap(" + name + ")");
-  }
-  return {name, data, size, /*owner=*/false};
+  return map(name, std::move(fd), /*owner=*/false);
 }
 
-SharedMemoryRegion::SharedMemoryRegion(std::string name, void* data, std::size_t size,
-                                       bool owner) noexcept
-    : name_(std::move(name)), data_(data), size_(size), owner_(owner) {}
+SharedMemoryRegion SharedMemoryRegion::map(std::string name, FileDescriptor fd, bool owner) {
+  struct stat info {};
+  if (::fstat(fd.get(), &info) != 0) {
+    fail_to_map(name, owner, "fstat");
+  }
+  const auto size = static_cast<std::size_t>(info.st_size);
+  void* data = ::mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd.get(), 0);
+  if (data == MAP_FAILED) {
+    fail_to_map(name, owner, "mmap");
+  }
+  return {std::move(name), std::move(fd), data, size, owner};
+}
+
+SharedMemoryRegion::SharedMemoryRegion(std::string name, FileDescriptor fd, void* data,
+                                       std::size_t size, bool owner) noexcept
+    : name_(std::move(name)), fd_(std::move(fd)), data_(data), size_(size), owner_(owner) {}
 
 SharedMemoryRegion::~SharedMemoryRegion() { release(); }
 
 SharedMemoryRegion::SharedMemoryRegion(SharedMemoryRegion&& other) noexcept
     : name_(std::move(other.name_)),
+      fd_(std::move(other.fd_)),
       data_(std::exchange(other.data_, nullptr)),
       size_(std::exchange(other.size_, 0)),
       owner_(std::exchange(other.owner_, false)) {}
@@ -82,6 +83,7 @@ SharedMemoryRegion& SharedMemoryRegion::operator=(SharedMemoryRegion&& other) no
   if (this != &other) {
     release();
     name_ = std::move(other.name_);
+    fd_ = std::move(other.fd_);
     data_ = std::exchange(other.data_, nullptr);
     size_ = std::exchange(other.size_, 0);
     owner_ = std::exchange(other.owner_, false);
@@ -94,10 +96,14 @@ void SharedMemoryRegion::release() noexcept {
     ::munmap(data_, size_);
     data_ = nullptr;
   }
+  // Unlink before closing the descriptor. Closing releases this descriptor's locks, and the
+  // publisher's lock is what stops another process from taking the name over; unlinking
+  // after that could remove the name of the other process's new segment.
   if (owner_) {
     ::shm_unlink(name_.c_str());
     owner_ = false;
   }
+  fd_.reset();
 }
 
 }  // namespace rtbus
