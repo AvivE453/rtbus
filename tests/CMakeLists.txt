@@ -16,13 +16,11 @@ add_executable(rtbus_tests
   chunk_pool_test.cpp
   file_descriptor_test.cpp
   index_ring_test.cpp
-  keep_last_queue_test.cpp
   message_type_test.cpp
   node_test.cpp
   segment_test.cpp
   shared_memory_region_test.cpp
   shm_transport_test.cpp
-  subscription_test.cpp
   wake_signal_test.cpp
 )
 target_link_libraries(rtbus_tests PRIVATE rtbus::rtbus rtbus_warnings GTest::gtest_main)

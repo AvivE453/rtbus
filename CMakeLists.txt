@@ -18,7 +18,7 @@ add_library(rtbus
   src/segment_connection.cpp
   src/shared_memory_region.cpp
   src/shm_publisher.cpp
-  src/topic_registry.cpp
+  src/shm_subscription.cpp
   src/wake_signal.cpp
 )
 add_library(rtbus::rtbus ALIAS rtbus)
