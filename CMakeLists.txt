@@ -23,8 +23,10 @@ add_library(rtbus
 )
 add_library(rtbus::rtbus ALIAS rtbus)
 target_include_directories(rtbus PUBLIC include)
-# librt provides shm_open on glibc < 2.34 (Ubuntu 20.04 ships 2.31).
-target_link_libraries(rtbus PRIVATE rtbus_warnings rt)
+# librt provides shm_open on glibc < 2.34 (Ubuntu 20.04 ships 2.31). Threads is public:
+# every subscriber runs a std::thread.
+find_package(Threads REQUIRED)
+target_link_libraries(rtbus PUBLIC Threads::Threads PRIVATE rtbus_warnings rt)
 
 option(RTBUS_BUILD_TESTS "Build the rtbus test suite" ON)
 if(RTBUS_BUILD_TESTS)
