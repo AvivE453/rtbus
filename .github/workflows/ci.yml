@@ -28,6 +28,19 @@ jobs:
       - run: cmake --build --preset ${{ matrix.preset }}
       - run: ctest --preset ${{ matrix.preset }}
 
+  # The benchmarks are only built, never run: CI runners are too noisy for latency numbers.
+  benchmarks:
+    name: build (release)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y g++-10 ninja-build
+
+      - run: cmake --preset release
+      - run: cmake --build --preset release
+
   lint:
     runs-on: ubuntu-22.04
     steps:
