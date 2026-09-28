@@ -26,3 +26,10 @@ add_executable(rtbus_tests
 target_link_libraries(rtbus_tests PRIVATE rtbus::rtbus rtbus_warnings GTest::gtest_main)
 # A test that deadlocks fails after 30 s instead of hanging the run.
 gtest_discover_tests(rtbus_tests PROPERTIES TIMEOUT 30)
+
+# A randomized soak test: see the header of stress.cpp. ctest runs a short version; run it
+# for ten minutes under tsan by hand before merging transport changes.
+add_executable(rtbus_stress stress.cpp)
+target_link_libraries(rtbus_stress PRIVATE rtbus::rtbus rtbus_warnings)
+add_test(NAME Stress.Short COMMAND rtbus_stress 5)
+set_tests_properties(Stress.Short PROPERTIES TIMEOUT 60)
