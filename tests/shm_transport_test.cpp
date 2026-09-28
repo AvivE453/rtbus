@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -11,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "doomed_child.hpp"
 #include "rtbus/detail/segment_connection.hpp"
 #include "rtbus/detail/shm_publisher.hpp"
 #include "rtbus/file_descriptor.hpp"
@@ -243,6 +245,46 @@ TEST(ShmTransportTest, LoanFailsOnlyWhenEveryChunkIsInUse) {
   for (const std::uint32_t chunk : loans) {
     publisher.discard(chunk);
   }
+}
+
+TEST(ShmTransportTest, SubscriberKilledInItsCallbackCostsThePublisherNothing) {
+  const auto topic = unique_topic();
+  ShmPublisher publisher(topic, int_type);
+  test_support::DoomedChild subscriber([&](test_support::DoomedChild& self) {
+    auto connection = connect(topic);
+    if (connection == nullptr) {
+      return;
+    }
+    self.report();
+    const std::atomic<bool> never{false};
+    while (!connection->take()) {
+      connection->wait(never, std::chrono::hours(1));
+    }
+    self.report();  // holding the message, as a callback would
+    test_support::wait_to_be_killed();
+  });
+  ASSERT_TRUE(subscriber.wait_for_report()) << "the subscriber did not connect";
+  publish(publisher, 1);
+  ASSERT_TRUE(subscriber.wait_for_report()) << "the subscriber did not take the message";
+  publish(publisher, 2);
+  subscriber.kill();
+
+  // Nobody frees the dead subscriber's chunks yet, but its queue keeps only its latest
+  // messages, so publishing never runs out of chunks.
+  for (int value = 0; value < 1000; ++value) {
+    publish(publisher, value);
+  }
+
+  // A newcomer finds the dead subscriber's slot and marks it as left. The next publish takes
+  // back its chunks, the one it died holding included.
+  auto newcomer = connect(topic);
+  ASSERT_NE(newcomer, nullptr);
+  publish(publisher, 3);
+  EXPECT_EQ(publisher.subscriber_count(), 1u);
+  EXPECT_EQ(receive(*newcomer), 3);
+  newcomer.reset();
+  publish(publisher, 4);
+  EXPECT_TRUE(every_chunk_is_free(publisher));
 }
 
 }  // namespace

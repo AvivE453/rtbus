@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "collector.hpp"
+#include "doomed_child.hpp"
 
 namespace rtbus {
 namespace {
@@ -249,6 +250,33 @@ TEST(NodeTest, SubscriberReconnectsWhenThePublisherIsReplaced) {
     first.publish(1);
     collector.wait_until_count(1);
   }
+
+  auto second = node.advertise<int>(topic);
+  wait_for_subscribers(second, 1);
+  second.publish(2);
+
+  EXPECT_EQ(collector.wait_until_count(2), (std::vector<int>{1, 2}));
+}
+
+// The same, but the first publisher never gets to close its segment: the subscriber has to
+// notice the death itself, and the new publisher has to replace what the dead one left.
+TEST(NodeTest, SubscriberReconnectsWhenThePublisherIsKilled) {
+  const auto topic = unique_topic("killed");
+  test_support::DoomedChild first_publisher([&](test_support::DoomedChild& self) {
+    Node node("doomed");
+    auto publisher = node.advertise<int>(topic);
+    self.report();
+    wait_for_subscribers(publisher, 1);
+    publisher.publish(1);
+    test_support::wait_to_be_killed();
+  });
+  ASSERT_TRUE(first_publisher.wait_for_report()) << "the first publisher did not advertise";
+
+  Node node("node");
+  Collector<int> collector;
+  auto subscriber = node.subscribe<int>(topic, [&](const int& v) { collector.add(v); });
+  collector.wait_until_count(1);
+  first_publisher.kill();
 
   auto second = node.advertise<int>(topic);
   wait_for_subscribers(second, 1);
