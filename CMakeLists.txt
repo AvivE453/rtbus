@@ -33,3 +33,10 @@ if(RTBUS_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
 endif()
+
+# Numbers from an unoptimized or sanitized build mean nothing, so only the release preset
+# turns this on.
+option(RTBUS_BUILD_BENCHMARKS "Build the latency harness and the microbenchmarks" OFF)
+if(RTBUS_BUILD_BENCHMARKS)
+  add_subdirectory(bench)
+endif()
