@@ -29,16 +29,20 @@ class ShmPublisher {
   ShmPublisher(ShmPublisher&&) = delete;
   ShmPublisher& operator=(ShmPublisher&&) = delete;
 
-  // A free chunk for the caller to fill, or std::nullopt if none is free, which happens only
-  // when more than kMaxLoans loans are outstanding.
-  [[nodiscard]] std::optional<std::uint32_t> loan() { return segment_.pool().allocate(); }
+  // A free chunk for the caller to fill, or std::nullopt if kMaxLoans loans are already
+  // outstanding. Within that limit the pool cannot run dry (see kChunkCount), unless
+  // subscribers that crashed leaked chunks; then this returns std::nullopt too.
+  [[nodiscard]] std::optional<std::uint32_t> loan();
   [[nodiscard]] void* payload(std::uint32_t chunk) { return segment_.pool().payload(chunk); }
   // Hands a loaned chunk to every connected subscriber and gives up the loan's reference.
   void publish(std::uint32_t chunk);
   // Returns an unpublished loan to the pool.
-  void discard(std::uint32_t chunk) { segment_.pool().release(chunk); }
+  void discard(std::uint32_t chunk);
 
+  [[nodiscard]] std::uint32_t loans_outstanding() const { return loans_outstanding_; }
   [[nodiscard]] std::size_t subscriber_count() const;
+  // Chunks that nobody holds, for monitoring and tests.
+  [[nodiscard]] std::uint32_t free_chunk_count() const { return segment_.pool().count_free(); }
 
  private:
   void deliver(SubscriberSlot& slot, std::uint32_t chunk);
@@ -46,6 +50,10 @@ class ShmPublisher {
 
   SharedMemoryRegion region_;
   SegmentView segment_;
+  // Counted, not trusted: kChunkCount is sized for at most kMaxLoans loans. A caller over the
+  // limit would otherwise get its loans while subscribers keep up, and fail only under load,
+  // once their queues fill.
+  std::uint32_t loans_outstanding_ = 0;
 };
 
 }  // namespace rtbus::detail

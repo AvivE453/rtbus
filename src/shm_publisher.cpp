@@ -88,6 +88,22 @@ ShmPublisher::~ShmPublisher() {
   }
 }
 
+std::optional<std::uint32_t> ShmPublisher::loan() {
+  if (loans_outstanding_ == kMaxLoans) {
+    return std::nullopt;
+  }
+  const std::optional<std::uint32_t> chunk = segment_.pool().allocate();
+  if (chunk) {
+    ++loans_outstanding_;
+  }
+  return chunk;
+}
+
+void ShmPublisher::discard(std::uint32_t chunk) {
+  segment_.pool().release(chunk);
+  --loans_outstanding_;
+}
+
 void ShmPublisher::publish(std::uint32_t chunk) {
   for (std::uint32_t i = 0; i < kMaxSubscribers; ++i) {
     SubscriberSlot& slot = segment_.slot(i);
@@ -105,6 +121,7 @@ void ShmPublisher::publish(std::uint32_t chunk) {
     }
   }
   segment_.pool().release(chunk);
+  --loans_outstanding_;
 }
 
 void ShmPublisher::deliver(SubscriberSlot& slot, std::uint32_t chunk) {

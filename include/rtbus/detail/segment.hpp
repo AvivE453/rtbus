@@ -94,6 +94,7 @@ class SegmentView {
   [[nodiscard]] SegmentHeader& header() const { return *header_; }
   [[nodiscard]] SubscriberSlot& slot(std::uint32_t index) const { return slots_[index]; }
   [[nodiscard]] ChunkPool& pool() { return pool_; }
+  [[nodiscard]] const ChunkPool& pool() const { return pool_; }
 
  private:
   SegmentView(void* base, ChunkPool pool);

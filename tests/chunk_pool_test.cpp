@@ -48,6 +48,23 @@ TEST(ChunkPoolTest, ChunkIsFreeAgainOnlyAfterItsLastRelease) {
   EXPECT_EQ(pool.allocate(), kIndex);
 }
 
+TEST(ChunkPoolTest, CountFreeFollowsAllocationsAndReleases) {
+  auto region = region_for(3, 64);
+  ChunkPool pool = ChunkPool::create(region.data(), 3, 64);
+  EXPECT_EQ(pool.count_free(), 3u);
+
+  ASSERT_EQ(pool.allocate(), 0u);
+  ASSERT_EQ(pool.allocate(), 1u);
+  pool.retain(1);
+  EXPECT_EQ(pool.count_free(), 1u);
+
+  pool.release(0);
+  pool.release(1);
+  EXPECT_EQ(pool.count_free(), 2u) << "chunk 1 still has a holder";
+  pool.release(1);
+  EXPECT_EQ(pool.count_free(), 3u);
+}
+
 TEST(ChunkPoolTest, PayloadsAreAlignedAndDoNotOverlap) {
   constexpr std::uint32_t kChunks = 4;
   constexpr std::size_t kPayloadSize = 100;

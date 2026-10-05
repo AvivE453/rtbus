@@ -127,6 +127,17 @@ TEST(NodeTest, UnpublishedLoanReturnsItsMemory) {
   SUCCEED();
 }
 
+TEST(NodeTest, ThirdOutstandingLoanIsRefusedEvenWithoutSubscribers) {
+  Node node("node");
+  auto publisher = node.advertise<int>(unique_topic("loans"));
+  Loan<int> first = publisher.loan();
+  const Loan<int> second = publisher.loan();
+
+  EXPECT_THROW(static_cast<void>(publisher.loan()), std::runtime_error);
+  publisher.publish(std::move(first));
+  EXPECT_NO_THROW(static_cast<void>(publisher.loan()));
+}
+
 TEST(NodeTest, LoanCanOnlyBePublishedByItsOwnPublisher) {
   Node node("node");
   auto first = node.advertise<int>(unique_topic("owner"));

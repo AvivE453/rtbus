@@ -25,12 +25,16 @@ template <typename T>
 class Publisher {
  public:
   // Zero-copy publishing: fill the loan in place, then publish(std::move(loan)).
-  // Throws std::runtime_error if more than kMaxLoans (2) loans are outstanding.
+  // Throws std::runtime_error if kMaxLoans (2) loans are already outstanding, or if
+  // subscribers that crashed have leaked enough chunks to exhaust the pool.
   [[nodiscard]] Loan<T> loan() {
     const std::optional<std::uint32_t> chunk = core_->loan();
     if (!chunk) {
-      throw std::runtime_error("rtbus: at most " + std::to_string(detail::kMaxLoans) +
-                               " loans may be outstanding per publisher");
+      if (core_->loans_outstanding() == detail::kMaxLoans) {
+        throw std::runtime_error("rtbus: at most " + std::to_string(detail::kMaxLoans) +
+                                 " loans may be outstanding per publisher");
+      }
+      throw std::runtime_error("rtbus: no free chunk; subscribers that crashed leaked some");
     }
     return Loan<T>(core_.get(), *chunk);
   }

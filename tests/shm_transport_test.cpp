@@ -52,16 +52,9 @@ std::optional<int> receive(SegmentConnection& connection) {
   return value;
 }
 
-// Every chunk can be loaned at once exactly when no reference is leaked.
-bool every_chunk_is_free(ShmPublisher& publisher) {
-  std::vector<std::uint32_t> loans;
-  while (const std::optional<std::uint32_t> chunk = publisher.loan()) {
-    loans.push_back(*chunk);
-  }
-  for (const std::uint32_t chunk : loans) {
-    publisher.discard(chunk);
-  }
-  return loans.size() == kChunkCount;
+// True exactly when no reference is leaked, once nobody holds a message.
+bool every_chunk_is_free(const ShmPublisher& publisher) {
+  return publisher.free_chunk_count() == kChunkCount;
 }
 
 TEST(ShmTransportTest, PublishedMessageReachesConnectedSubscriber) {
@@ -230,21 +223,35 @@ TEST(ShmTransportTest, WaitReturnsOnceAMessageIsQueued) {
   EXPECT_EQ(receive(*connection), 1);
 }
 
-TEST(ShmTransportTest, LoanFailsOnlyWhenEveryChunkIsInUse) {
+// kChunkCount is sized for kMaxLoans outstanding loans, so the limit holds even while the
+// pool is nearly empty: a caller over it fails at once, not only once subscribers fall behind.
+TEST(ShmTransportTest, LoanBeyondTheLimitFailsUntilOneIsReturned) {
   ShmPublisher publisher(unique_topic(), int_type);
-  std::vector<std::uint32_t> loans;
-  for (std::uint32_t i = 0; i < kChunkCount; ++i) {
-    const std::optional<std::uint32_t> chunk = publisher.loan();
-    if (!chunk) {
-      FAIL() << "chunk " << i << " should still be free";
-    }
-    loans.push_back(*chunk);
+  const std::optional<std::uint32_t> first = publisher.loan();
+  if (!first) {
+    FAIL() << "the first loan must succeed";
+  }
+  const std::optional<std::uint32_t> second = publisher.loan();
+  if (!second) {
+    FAIL() << "the second loan must succeed";
+  }
+  EXPECT_EQ(publisher.loan(), std::nullopt);
+
+  publisher.discard(*first);
+  const std::optional<std::uint32_t> third = publisher.loan();
+  if (!third) {
+    FAIL() << "a discarded loan makes room for another";
+  }
+  publisher.publish(*third);
+  const std::optional<std::uint32_t> fourth = publisher.loan();
+  if (!fourth) {
+    FAIL() << "a published loan makes room for another";
   }
 
-  EXPECT_EQ(publisher.loan(), std::nullopt);
-  for (const std::uint32_t chunk : loans) {
-    publisher.discard(chunk);
-  }
+  publisher.discard(*second);
+  publisher.discard(*fourth);
+  EXPECT_EQ(publisher.loans_outstanding(), 0u);
+  EXPECT_TRUE(every_chunk_is_free(publisher));
 }
 
 TEST(ShmTransportTest, SubscriberKilledInItsCallbackCostsThePublisherNothing) {

@@ -78,6 +78,19 @@ class ChunkPool {
     header(index).references.fetch_sub(1, std::memory_order_release);
   }
 
+  // Chunks that nobody holds right now. A snapshot for monitoring and tests: other processes
+  // may take or release chunks while it counts.
+  [[nodiscard]] std::uint32_t count_free() const {
+    std::uint32_t count = 0;
+    for (std::uint32_t index = 0; index < chunk_count_; ++index) {
+      // Relaxed: nothing is read through the result.
+      if (header(index).references.load(std::memory_order_relaxed) == 0) {
+        ++count;
+      }
+    }
+    return count;
+  }
+
   [[nodiscard]] void* payload(std::uint32_t index) const {
     return chunk(index) + sizeof(ChunkHeader);
   }
