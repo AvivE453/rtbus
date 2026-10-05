@@ -1,8 +1,10 @@
 #include "rtbus/node.hpp"
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <future>
 #include <stdexcept>
@@ -11,17 +13,27 @@
 #include <vector>
 
 #include "collector.hpp"
+#include "doomed_child.hpp"
 
 namespace rtbus {
 namespace {
 
 using test_support::Collector;
 
-// The topic registry is process-wide and --gtest_repeat reruns tests in one process,
-// so every test uses fresh topic names.
+// Topics are machine-wide names in /dev/shm, so the pid keeps parallel test runs apart, and
+// the counter keeps --gtest_repeat runs apart.
 std::string unique_topic(const std::string& base) {
   static std::atomic<int> counter{0};
-  return base + "_" + std::to_string(counter++);
+  return base + "_" + std::to_string(::getpid()) + "_" + std::to_string(counter++);
+}
+
+// A subscriber created before its publisher connects in the background. Tests that publish
+// right after advertising first wait until the publisher sees every subscriber.
+template <typename T>
+void wait_for_subscribers(const Publisher<T>& publisher, std::size_t count) {
+  while (publisher.subscriber_count() < count) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 }
 
 struct Pose {
@@ -37,6 +49,7 @@ TEST(NodeTest, MessageReachesSubscriberOnAnotherNode) {
   Collector<Pose> collector;
   auto subscriber = receiver.subscribe<Pose>(topic, [&](const Pose& p) { collector.add(p); });
   auto publisher = sender.advertise<Pose>(topic);
+  wait_for_subscribers(publisher, 1);
 
   publisher.publish(Pose{1.5, -2.0, 7});
 
@@ -46,8 +59,20 @@ TEST(NodeTest, MessageReachesSubscriberOnAnotherNode) {
   EXPECT_EQ(received[0].sequence, 7u);
 }
 
+TEST(NodeTest, SubscriberCreatedAfterItsPublisherIsConnectedAtOnce) {
+  const auto topic = unique_topic("late");
+  Node node("node");
+  auto publisher = node.advertise<int>(topic);
+  Collector<int> collector;
+  auto subscriber = node.subscribe<int>(topic, [&](const int& v) { collector.add(v); });
+
+  publisher.publish(3);
+
+  EXPECT_EQ(collector.wait_until_count(1), std::vector<int>{3});
+}
+
 TEST(NodeTest, EverySubscriberReceivesEveryMessage) {
-  constexpr int kMessages = 100;
+  constexpr int kMessages = 16;  // the queue capacity, so nothing can be dropped
   const auto topic = unique_topic("fanout");
   Node node("node");
   std::vector<Collector<int>> collectors(3);
@@ -55,9 +80,10 @@ TEST(NodeTest, EverySubscriberReceivesEveryMessage) {
   subscribers.reserve(collectors.size());
   for (auto& collector : collectors) {
     subscribers.push_back(
-        node.subscribe<int>(topic, [&collector](const int& v) { collector.add(v); }, kMessages));
+        node.subscribe<int>(topic, [&collector](const int& v) { collector.add(v); }));
   }
   auto publisher = node.advertise<int>(topic);
+  wait_for_subscribers(publisher, collectors.size());
 
   std::vector<int> expected;
   for (int i = 0; i < kMessages; ++i) {
@@ -70,26 +96,117 @@ TEST(NodeTest, EverySubscriberReceivesEveryMessage) {
   }
 }
 
+TEST(NodeTest, LoanedMessageIsFilledInPlaceAndDelivered) {
+  const auto topic = unique_topic("loan");
+  Node node("node");
+  auto publisher = node.advertise<Pose>(topic);
+  Collector<Pose> collector;
+  auto subscriber = node.subscribe<Pose>(topic, [&](const Pose& p) { collector.add(p); });
+
+  Loan<Pose> loan = publisher.loan();
+  loan->x = 4.0;
+  loan->y = 5.0;
+  loan->sequence = 6;
+  publisher.publish(std::move(loan));
+
+  const auto received = collector.wait_until_count(1);
+  EXPECT_EQ(received[0].x, 4.0);
+  EXPECT_EQ(received[0].sequence, 6u);
+}
+
+// The pool has a fixed number of chunks: loans that were never returned would exhaust it.
+TEST(NodeTest, UnpublishedLoanReturnsItsMemory) {
+  Node node("node");
+  auto publisher = node.advertise<int>(unique_topic("unpublished"));
+
+  for (int i = 0; i < 1000; ++i) {
+    Loan<int> loan = publisher.loan();
+    *loan = i;
+  }
+  publisher.publish(1);
+  SUCCEED();
+}
+
+TEST(NodeTest, ThirdOutstandingLoanIsRefusedEvenWithoutSubscribers) {
+  Node node("node");
+  auto publisher = node.advertise<int>(unique_topic("loans"));
+  Loan<int> first = publisher.loan();
+  const Loan<int> second = publisher.loan();
+
+  EXPECT_THROW(static_cast<void>(publisher.loan()), std::runtime_error);
+  publisher.publish(std::move(first));
+  EXPECT_NO_THROW(static_cast<void>(publisher.loan()));
+}
+
+TEST(NodeTest, LoanCanOnlyBePublishedByItsOwnPublisher) {
+  Node node("node");
+  auto first = node.advertise<int>(unique_topic("owner"));
+  auto second = node.advertise<int>(unique_topic("other"));
+
+  EXPECT_THROW(second.publish(first.loan()), std::invalid_argument);
+}
+
 TEST(NodeTest, TopicsDoNotLeakIntoEachOther) {
   const auto topic_a = unique_topic("a");
   const auto topic_b = unique_topic("b");
   Node node("node");
+  auto publisher_a = node.advertise<int>(topic_a);
+  auto publisher_b = node.advertise<int>(topic_b);
   Collector<int> collector_b;
   auto subscriber_b = node.subscribe<int>(topic_b, [&](const int& v) { collector_b.add(v); });
 
-  node.advertise<int>(topic_a).publish(1);
-  node.advertise<int>(topic_b).publish(2);
+  publisher_a.publish(1);
+  publisher_b.publish(2);
 
   EXPECT_EQ(collector_b.wait_until_count(1), std::vector<int>{2});
+  EXPECT_EQ(publisher_a.subscriber_count(), 0u);
 }
 
-TEST(NodeTest, SameTopicWithDifferentTypeIsRejected) {
+TEST(NodeTest, SubscriberOfAnotherMessageTypeIsRejected) {
   const auto topic = unique_topic("typed");
   Node node("node");
   auto publisher = node.advertise<int>(topic);
 
-  EXPECT_THROW(static_cast<void>(node.advertise<Pose>(topic)), std::invalid_argument);
   EXPECT_THROW(static_cast<void>(node.subscribe<Pose>(topic, [](const Pose&) {})),
+               std::invalid_argument);
+}
+
+// Without a publisher there is nothing to compare types with; the subscriber stays
+// disconnected from a publisher of another type instead.
+TEST(NodeTest, SubscriberWaitsOutAPublisherOfAnotherMessageType) {
+  const auto topic = unique_topic("typed_later");
+  Node node("node");
+  auto subscriber = node.subscribe<Pose>(topic, [](const Pose&) {});
+  auto publisher = node.advertise<int>(topic);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  EXPECT_EQ(publisher.subscriber_count(), 0u);
+}
+
+TEST(NodeTest, SecondPublisherOnATopicIsRejected) {
+  const auto topic = unique_topic("single");
+  Node node("node");
+  auto publisher = node.advertise<int>(topic);
+
+  EXPECT_THROW(static_cast<void>(node.advertise<int>(topic)), std::runtime_error);
+}
+
+TEST(NodeTest, InvalidTopicNameIsRejected) {
+  Node node("node");
+
+  EXPECT_THROW(static_cast<void>(node.advertise<int>("a/b")), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(node.subscribe<int>("", [](const int&) {})),
+               std::invalid_argument);
+}
+
+TEST(NodeTest, QueueCapacityOutsideRangeIsRejected) {
+  Node node("node");
+  const auto topic = unique_topic("capacity");
+
+  EXPECT_THROW(static_cast<void>(node.subscribe<int>(topic, [](const int&) {}, {0})),
+               std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(node.subscribe<int>(topic, [](const int&) {}, {17})),
                std::invalid_argument);
 }
 
@@ -104,10 +221,10 @@ TEST(NodeTest, PublishWithoutSubscribersDoesNothing) {
 TEST(NodeTest, DestroyedSubscriberStopsReceivingWhileOthersContinue) {
   const auto topic = unique_topic("leave");
   Node node("node");
+  auto publisher = node.advertise<int>(topic);
   Collector<int> stays;
   auto staying = node.subscribe<int>(topic, [&](const int& v) { stays.add(v); });
   std::atomic<int> left_count{0};
-  auto publisher = node.advertise<int>(topic);
   {
     auto leaving = node.subscribe<int>(topic, [&](const int&) { ++left_count; });
     publisher.publish(1);
@@ -123,23 +240,84 @@ TEST(NodeTest, DestroyedSubscriberStopsReceivingWhileOthersContinue) {
 TEST(NodeTest, MovedSubscriberKeepsReceiving) {
   const auto topic = unique_topic("move");
   Node node("node");
+  auto publisher = node.advertise<int>(topic);
   Collector<int> collector;
   auto original = node.subscribe<int>(topic, [&](const int& v) { collector.add(v); });
 
   Subscriber<int> moved = std::move(original);
-  node.advertise<int>(topic).publish(5);
+  publisher.publish(5);
 
   EXPECT_EQ(collector.wait_until_count(1), std::vector<int>{5});
 }
 
+TEST(NodeTest, SubscriberReconnectsWhenThePublisherIsReplaced) {
+  const auto topic = unique_topic("replaced");
+  Node node("node");
+  Collector<int> collector;
+  auto subscriber = node.subscribe<int>(topic, [&](const int& v) { collector.add(v); });
+  {
+    auto first = node.advertise<int>(topic);
+    wait_for_subscribers(first, 1);
+    first.publish(1);
+    collector.wait_until_count(1);
+  }
+
+  auto second = node.advertise<int>(topic);
+  wait_for_subscribers(second, 1);
+  second.publish(2);
+
+  EXPECT_EQ(collector.wait_until_count(2), (std::vector<int>{1, 2}));
+}
+
+// The same, but the first publisher never gets to close its segment: the subscriber has to
+// notice the death itself, and the new publisher has to replace what the dead one left.
+TEST(NodeTest, SubscriberReconnectsWhenThePublisherIsKilled) {
+  const auto topic = unique_topic("killed");
+  test_support::DoomedChild first_publisher([&](test_support::DoomedChild& self) {
+    Node node("doomed");
+    auto publisher = node.advertise<int>(topic);
+    self.report();
+    wait_for_subscribers(publisher, 1);
+    publisher.publish(1);
+    test_support::wait_to_be_killed();
+  });
+  ASSERT_TRUE(first_publisher.wait_for_report()) << "the first publisher did not advertise";
+
+  Node node("node");
+  Collector<int> collector;
+  auto subscriber = node.subscribe<int>(topic, [&](const int& v) { collector.add(v); });
+  collector.wait_until_count(1);
+  first_publisher.kill();
+
+  auto second = node.advertise<int>(topic);
+  wait_for_subscribers(second, 1);
+  second.publish(2);
+
+  EXPECT_EQ(collector.wait_until_count(2), (std::vector<int>{1, 2}));
+}
+
+TEST(NodeTest, BusyPollingSubscriberReceivesMessages) {
+  const auto topic = unique_topic("busy");
+  Node node("node");
+  auto publisher = node.advertise<int>(topic);
+  Collector<int> collector;
+  auto subscriber =
+      node.subscribe<int>(topic, [&](const int& v) { collector.add(v); }, {4, WaitMode::kBusyPoll});
+
+  publisher.publish(1);
+  publisher.publish(2);
+
+  EXPECT_EQ(collector.wait_until_count(2), (std::vector<int>{1, 2}));
+}
+
 // Under the tsan and asan presets this is the check for the dangerous race: a subscriber
-// being destroyed while a publisher is delivering to it on another thread.
+// joining and leaving while a publisher is delivering to its slot on another thread.
 TEST(NodeTest, SubscribersComeAndGoWhilePublishing) {
   const auto topic = unique_topic("churn");
   Node node("node");
+  auto publisher = node.advertise<int>(topic);
   std::atomic<bool> stop{false};
   std::thread publisher_thread([&] {
-    auto publisher = node.advertise<int>(topic);
     for (int i = 0; !stop.load(); ++i) {
       publisher.publish(i);
     }
@@ -147,7 +325,7 @@ TEST(NodeTest, SubscribersComeAndGoWhilePublishing) {
 
   for (int round = 0; round < 200; ++round) {
     std::atomic<int> received{0};
-    auto subscriber = node.subscribe<int>(topic, [&](const int&) { ++received; }, 4);
+    auto subscriber = node.subscribe<int>(topic, [&](const int&) { ++received; }, {4});
     std::this_thread::yield();
   }
   stop = true;
@@ -188,7 +366,7 @@ TEST(NodeTest, ConcurrentTopicsLoseNothingUncounted) {
               tally.saw_last.set_value();
             }
           },
-          8));
+          {8}));
     }
   }
 
@@ -197,6 +375,7 @@ TEST(NodeTest, ConcurrentTopicsLoseNothingUncounted) {
   for (const auto& topic : topics) {
     publishers.emplace_back([&node, topic] {
       auto publisher = node.advertise<std::uint64_t>(topic);
+      wait_for_subscribers(publisher, kSubscribersPerTopic);
       for (std::uint64_t i = 1; i <= kMessages; ++i) {
         publisher.publish(i);
       }

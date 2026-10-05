@@ -12,17 +12,31 @@ add_library(rtbus_warnings INTERFACE)
 target_compile_options(rtbus_warnings INTERFACE -Wall -Wextra -Wpedantic -Werror)
 
 add_library(rtbus
+  src/byte_lock.cpp
   src/file_descriptor.cpp
+  src/segment.cpp
+  src/segment_connection.cpp
   src/shared_memory_region.cpp
-  src/topic_registry.cpp
+  src/shm_publisher.cpp
+  src/shm_subscription.cpp
+  src/wake_signal.cpp
 )
 add_library(rtbus::rtbus ALIAS rtbus)
 target_include_directories(rtbus PUBLIC include)
-# librt provides shm_open on glibc < 2.34 (Ubuntu 20.04 ships 2.31).
-target_link_libraries(rtbus PRIVATE rtbus_warnings rt)
+# librt provides shm_open on glibc < 2.34 (Ubuntu 20.04 ships 2.31). Threads is public:
+# every subscriber runs a std::thread.
+find_package(Threads REQUIRED)
+target_link_libraries(rtbus PUBLIC Threads::Threads PRIVATE rtbus_warnings rt)
 
 option(RTBUS_BUILD_TESTS "Build the rtbus test suite" ON)
 if(RTBUS_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
+endif()
+
+# Numbers from an unoptimized or sanitized build mean nothing, so only the release preset
+# turns this on.
+option(RTBUS_BUILD_BENCHMARKS "Build the latency harness and the microbenchmarks" OFF)
+if(RTBUS_BUILD_BENCHMARKS)
+  add_subdirectory(bench)
 endif()
