@@ -14,11 +14,9 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-// How long to wait before trying again to connect while the topic has no usable publisher.
 constexpr auto kRetryInterval = std::chrono::milliseconds(10);
-// How often a connected subscriber checks that its publisher is still alive. A publisher that
-// shuts down normally wakes its subscribers at once; only a crashed one takes this long to
-// notice.
+// Only a crashed publisher takes this long to notice: one that shuts down normally wakes its
+// subscribers at once.
 constexpr auto kLivenessInterval = std::chrono::milliseconds(100);
 
 // SegmentConnection::connect(), but nullptr instead of an exception. On this thread nobody
@@ -138,7 +136,6 @@ bool ShmSubscription::deliver_next(SegmentConnection& connection) {
 }
 
 void ShmSubscription::wait_before_retrying() {
-  // The WakeSignal protocol, with `stopping_` as the condition.
   const std::uint32_t ticket = retry_signal_.prepare_wait();
   if (stopping_.load()) {
     retry_signal_.cancel_wait();

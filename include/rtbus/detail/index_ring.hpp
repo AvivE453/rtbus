@@ -102,7 +102,7 @@ class IndexRing {
   // head_ is written by the consumer, tail_ by the producer. On separate cache lines, a write
   // to one does not force the other side to reload the line holding the other (false sharing).
   alignas(64) std::atomic<std::uint64_t> head_{0};
-  // Set once in the constructor, before any other process can reach the ring.
+  // Not atomic: written once, before any other process can reach the ring.
   const std::uint32_t capacity_;
   alignas(64) std::atomic<std::uint64_t> tail_{0};
   std::atomic<std::uint64_t> dropped_{0};

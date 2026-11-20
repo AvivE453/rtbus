@@ -117,8 +117,10 @@ SegmentConnection::~SegmentConnection() {
 std::optional<std::uint32_t> SegmentConnection::take() {
   const std::optional<std::uint32_t> chunk = slot().ring.pop();
   if (chunk) {
-    // Relaxed: the publisher reads in_hand only after seeing the slot marked kLeaving, and
-    // that store (release) orders this one.
+    // Relaxed: the publisher reads in_hand only after seeing the slot marked kLeaving
+    // (acquire). If we leave, our own release store of kLeaving orders this one. If we die,
+    // the kernel drops our slot lock only after we stop, and the subscriber that then takes
+    // the lock is the one that stores kLeaving, with release.
     slot().in_hand.store(*chunk, std::memory_order_relaxed);
   }
   return chunk;
@@ -130,7 +132,6 @@ void SegmentConnection::finish(std::uint32_t chunk) {
 }
 
 void SegmentConnection::wait(const std::atomic<bool>& stop, std::chrono::nanoseconds timeout) {
-  // The WakeSignal protocol: take a ticket, re-check every reason to stay awake, then sleep.
   WakeSignal& signal = slot().wake;
   const std::uint32_t ticket = signal.prepare_wait();
   if (!slot().ring.empty() || stop.load() || closed()) {

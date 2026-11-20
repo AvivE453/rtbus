@@ -12,7 +12,6 @@
 
 namespace rtbus::test_support {
 
-// Blocks the calling thread until the process is killed.
 [[noreturn]] inline void wait_to_be_killed() {
   for (;;) {
     ::pause();

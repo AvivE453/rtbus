@@ -12,7 +12,7 @@ namespace rtbus {
 // processes that open() an existing region only unmap it.
 // The region keeps its file descriptor open, because file locks on the object belong to
 // the descriptor (see detail/byte_lock.hpp).
-// Move-only. Names must start with '/'.
+// Names must start with '/'.
 class SharedMemoryRegion {
  public:
   // Fails if `name` already exists, so two creators can never share a region by accident.

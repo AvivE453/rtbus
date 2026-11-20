@@ -43,7 +43,7 @@ class ShmSubscription {
   void run();
   void try_to_connect();
   void receive_until_disconnected(SegmentConnection& connection);
-  // Runs the callback for the next queued message, if there is one.
+  // False if the queue was empty.
   bool deliver_next(SegmentConnection& connection);
   void wait_before_retrying();
   void set_connection(std::unique_ptr<SegmentConnection> connection);

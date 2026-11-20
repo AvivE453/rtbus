@@ -135,8 +135,8 @@ void ShmPublisher::deliver(SubscriberSlot& slot, std::uint32_t chunk) {
   slot.wake.notify();
 }
 
-// The slot's subscriber has stopped using it, by leaving or by dying: release every chunk
-// the slot still references, then make it free for the next subscriber.
+// The publisher pops here as if it were the consumer, which is safe only because the slot's
+// subscriber has left or died.
 void ShmPublisher::reclaim(SubscriberSlot& slot) {
   ChunkPool& pool = segment_.pool();
   while (const std::optional<std::uint32_t> chunk = slot.ring.pop()) {

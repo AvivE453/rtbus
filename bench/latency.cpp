@@ -123,7 +123,7 @@ class SenderProcess {
   SenderProcess(SenderProcess&&) = delete;
   SenderProcess& operator=(SenderProcess&&) = delete;
 
-  // Waits for the sender to finish. Throws if it failed.
+  // Throws if the sender failed.
   void join() {
     int status = 0;
     if (::waitpid(pid_, &status, 0) != pid_) {

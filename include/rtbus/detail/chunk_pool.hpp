@@ -21,13 +21,13 @@ class ChunkPool {
  public:
   static constexpr std::size_t kAlignment = 64;
 
-  // `memory` must be aligned to kAlignment (mmap returns page-aligned memory).
   [[nodiscard]] static std::size_t bytes_needed(std::uint32_t chunk_count,
                                                 std::size_t payload_size) {
     return chunk_count * stride_for(payload_size);
   }
 
   // Called once by the process that owns the memory, before any other process uses it.
+  // `memory` must be aligned to kAlignment (mmap returns page-aligned memory).
   [[nodiscard]] static ChunkPool create(void* memory, std::uint32_t chunk_count,
                                         std::size_t payload_size) {
     ChunkPool pool(memory, chunk_count, payload_size);

@@ -18,7 +18,7 @@ class Publisher;
 // initializer hold whatever an earlier message left there until written.
 //
 // Destroying a Loan without publishing it returns the memory. A Loan must not outlive the
-// Publisher it came from. Move-only.
+// Publisher it came from.
 template <typename T>
 class Loan {
  public:

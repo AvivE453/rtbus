@@ -18,7 +18,6 @@ class FileDescriptor {
   [[nodiscard]] int get() const noexcept { return fd_; }
   [[nodiscard]] bool valid() const noexcept { return fd_ >= 0; }
 
-  // Closes the current descriptor (if any) and takes ownership of `fd`.
   void reset(int fd = -1) noexcept;
 
  private:
