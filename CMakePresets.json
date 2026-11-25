@@ -31,12 +31,23 @@
       "cacheVariables": {
         "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer"
       }
+    },
+    {
+      "name": "release",
+      "displayName": "Release, for benchmarks",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "RTBUS_BUILD_TESTS": "OFF",
+        "RTBUS_BUILD_BENCHMARKS": "ON"
+      }
     }
   ],
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
     { "name": "asan", "configurePreset": "asan" },
-    { "name": "tsan", "configurePreset": "tsan" }
+    { "name": "tsan", "configurePreset": "tsan" },
+    { "name": "release", "configurePreset": "release" }
   ],
   "testPresets": [
     { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
