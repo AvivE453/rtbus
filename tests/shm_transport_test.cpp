@@ -1,8 +1,10 @@
 #include <fcntl.h>
 #include <gtest/gtest.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -10,12 +12,16 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <system_error>
+#include <thread>
 #include <vector>
 
 #include "doomed_child.hpp"
 #include "rtbus/detail/segment_connection.hpp"
 #include "rtbus/detail/shm_publisher.hpp"
 #include "rtbus/file_descriptor.hpp"
+#include "rtbus/shared_memory_region.hpp"
+#include "unique_shm_name.hpp"
 
 namespace rtbus::detail {
 namespace {
@@ -55,6 +61,89 @@ std::optional<int> receive(SegmentConnection& connection) {
 // True exactly when no reference is leaked, once nobody holds a message.
 bool every_chunk_is_free(const ShmPublisher& publisher) {
   return publisher.free_chunk_count() == kChunkCount;
+}
+
+struct PublisherRace {
+  std::atomic<int> ready_children_counter = 0;
+  std::atomic<bool> all_children_ready = false;
+  std::atomic<int> finish_children_counter = 0;
+};
+
+// The child's exit code: 0 if it became the publisher, 1 if it was rejected because another
+// one is, 2 for any other failure.
+int compete(PublisherRace& race, const std::string& topic, int contenders) {
+  std::optional<ShmPublisher> publisher;
+  int code = 0;
+  try {
+    publisher.emplace(topic, int_type);
+  } catch (const std::system_error&) {
+    code = 2;
+  } catch (const std::runtime_error&) {
+    code = 1;
+  } catch (...) {
+    code = 2;
+  }
+  race.finish_children_counter.fetch_add(1);
+  // The winner holds the topic until everyone has tried: one that tried after it left
+  // could rightly win too.
+  while (publisher && race.finish_children_counter.load() < contenders) {
+    std::this_thread::yield();
+  }
+  return code;
+}
+
+std::vector<int> race_to_publish(const std::string& topic, int contenders) {
+  auto region = SharedMemoryRegion::create(test_support::unique_shm_name(), sizeof(PublisherRace));
+  auto* race = new (region.data()) PublisherRace;
+
+  std::vector<pid_t> children;
+  for (int i = 0; i < contenders; ++i) {
+    const pid_t pid = ::fork();
+    if (pid == 0) {
+      race->ready_children_counter.fetch_add(1);
+      while (!race->all_children_ready.load()) {
+        std::this_thread::yield();
+      }
+      ::_exit(compete(*race, topic, contenders));
+    }
+    children.push_back(pid);
+  }
+
+  while (race->ready_children_counter.load() < contenders) {
+    std::this_thread::yield();
+  }
+  race->all_children_ready.store(true);
+
+  std::vector<int> codes;
+  for (const pid_t child : children) {
+    int status = 0;
+    ::waitpid(child, &status, 0);
+    codes.push_back(WEXITSTATUS(status));
+  }
+  return codes;
+}
+
+TEST(ShmTransportTest, ExactlyOneOfManyRacingPublishersWins) {
+  const std::vector<int> codes = race_to_publish(unique_topic(), 64);
+
+  ASSERT_EQ(codes.size(), 64u);
+  EXPECT_EQ(std::count(codes.begin(), codes.end(), 0), 1) << "winners";
+  EXPECT_EQ(std::count(codes.begin(), codes.end(), 1), 63) << "rejected as a second publisher";
+}
+
+TEST(ShmTransportTest, ExactlyOneOfManyPublishersRacingForADeadOnesSegmentWins) {
+  const auto topic = unique_topic();
+  const std::string name = segment_name(topic);
+  FileDescriptor leftover(::shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600));
+  ASSERT_TRUE(leftover.valid());
+  ASSERT_EQ(::ftruncate(leftover.get(), 4096), 0);
+  leftover.reset();
+
+  const std::vector<int> codes = race_to_publish(topic, 64);
+
+  ASSERT_EQ(codes.size(), 64u);
+  EXPECT_EQ(std::count(codes.begin(), codes.end(), 0), 1) << "winners";
+  EXPECT_EQ(std::count(codes.begin(), codes.end(), 1), 63) << "rejected as a second publisher";
 }
 
 TEST(ShmTransportTest, PublishedMessageReachesConnectedSubscriber) {
