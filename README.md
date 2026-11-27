@@ -1,10 +1,15 @@
 # rtbus
 
-A brokerless publish/subscribe middleware for real-time systems on Linux, written in C++17.
+[![CI](https://github.com/AvivE453/rtbus/actions/workflows/ci.yml/badge.svg)](https://github.com/AvivE453/rtbus/actions/workflows/ci.yml)
 
-Processes publish messages on named topics. Subscribers on the same host receive them through
-zero-copy shared memory; subscribers on other hosts will receive them over UDP multicast. There
-is no central broker to route through or to fail.
+A brokerless publish/subscribe middleware for real-time systems on Linux, written in C++17: a
+small version of what DDS, eCAL and iceoryx do inside robots and cars.
+
+The problem it solves: in a robot, processes hand each other sensor data (poses, point clouds,
+camera frames) hundreds of times a second. Sending it through a socket or a broker copies every
+message on the way and adds latency that grows with its size, and a central broker is one more
+process that can crash. rtbus hands a message over through shared memory without copying it,
+has no broker, and keeps working when a process on either end is killed.
 
 > **Status:** the shared-memory transport works between processes on one host. The UDP
 > transport for other hosts is next.
@@ -41,50 +46,36 @@ publisher is restarted or replaced.
 
 ## How it works
 
-- **One shared-memory segment per topic.** The publisher creates `/dev/shm/rtbus.<topic>`. The
-  segment holds a pool of message chunks and one slot for each subscriber.
-- **Zero-copy with reference counts.** A published chunk is shared by every subscriber that
-  receives it. It returns to the pool when the last one finishes with it.
-- **A lock-free queue per subscriber.** Each subscriber has its own queue of chunk indices, and
-  the publisher never waits for it. A subscriber that falls behind loses its oldest queued
-  messages (KeepLast), counted in `subscriber.dropped()`. Its queue holds 1 to 16 messages
-  (`SubscriberOptions::queue_capacity`).
-- **Futex wake-up.** An idle subscriber sleeps in the kernel until a message arrives. The
-  futex is skipped entirely when nobody is asleep. A subscriber that needs the lowest latency
-  can busy-poll instead (`WaitMode::kBusyPoll`), at the price of a CPU core.
-- **Crash recovery.** Every participant holds a byte-range lock on the segment file, and the
-  kernel releases it when the process dies, even by `kill -9`. From those locks:
-  - Subscribers notice a dead publisher.
-  - A new publisher takes over the dead one's segment.
-  - The slot and chunks of a dead subscriber are taken back, including a message it was
-    reading when it died.
+```mermaid
+flowchart LR
+    pub[Publisher process] -- "fills a message in place" --> seg[("/dev/shm/rtbus.pose<br/>message pool + a queue per subscriber")]
+    seg -- "message index" --> s1[Subscriber process 1]
+    seg -- "message index" --> s2[Subscriber process 2]
+```
 
-### Limits
+- **Zero-copy:** subscribers read the publisher's message where it was written. Reference
+  counts return it to the pool once every subscriber is done with it.
+- **The publisher never waits:** each subscriber has its own lock-free queue, and one that falls
+  behind loses its oldest messages.
+- **Futex wake-up:** an idle subscriber sleeps in the kernel until a message arrives, or
+  busy-polls for the lowest latency.
+- **Crash recovery:** every process holds a byte-range lock that the kernel releases when it
+  dies, even by `kill -9`, so the others notice and take back what it held.
 
-- **Topics:** one publisher and at most 8 subscribers per topic.
-- **Loans:** at most 2 outstanding loans per publisher.
-- **Message types:** trivially copyable, default-constructible structs, aligned to at most 64
-  bytes. Both sides must see the same type name, size and alignment. Subscribing to a publisher
-  of another type throws, and a subscriber waiting for its publisher ignores one of another
-  type.
+The design in more depth, with the limits: [docs/design.md](docs/design.md).
 
 ## Performance
 
-Measured on a laptop (Core i7-11390H, no real-time tuning), one message per millisecond between
-two processes. See [bench/RESULTS.md](bench/RESULTS.md) for the method, every percentile and the
-caveats.
+Median one-way latency between two processes on a laptop, one message per millisecond:
 
-| p50 one-way latency | 64 B | 1 MB |
+| | 64 B | 1 MB |
 |---|---:|---:|
 | Unix domain socket | 3.5 µs | 167 µs |
 | rtbus, sleeping subscriber | 2.5 µs | 3.1 µs |
 | rtbus, busy-polling subscriber | 0.4 µs | 0.4 µs |
 
-The two top rows were measured with CPU idle states kept out. With them, about a quarter of
-the messages to a sleeping receiver on this laptop wait around 100 µs for a CPU core to wake.
-The busy-polling row comes from a run with idle states left on, because a busy-polling
-subscriber needs a core of its own. Publishing and taking a message costs about 72 ns of CPU at
-any size up to 1 MB.
+The two top rows were measured with CPU idle states kept out. The method, every percentile and
+the caveats: [bench/RESULTS.md](bench/RESULTS.md).
 
 ## Roadmap
 
@@ -99,7 +90,7 @@ any size up to 1 MB.
 
 ## Building
 
-Requirements: Linux, GCC 10 or newer, CMake 3.21+, Ninja. GoogleTest and Google Benchmark are
+Requires Linux, GCC 10 or newer, CMake 3.21+ and Ninja. GoogleTest and Google Benchmark are
 downloaded at configure time.
 
 ```bash
@@ -108,37 +99,5 @@ cmake --build --preset debug
 ctest --preset debug
 ```
 
-Each preset builds into its own `build/<preset>` directory:
-
-| Preset | Purpose |
-|---|---|
-| `debug` | Plain debug build |
-| `asan` | AddressSanitizer + UndefinedBehaviorSanitizer |
-| `tsan` | ThreadSanitizer |
-| `release` | Optimized build of the benchmarks only |
-
-The tests include a randomized stress test (`Stress.Short`, 5 seconds). Its long form restarts
-publishers, churns subscribers and kills subscriber processes for ten minutes:
-
-```bash
-./build/tsan/tests/rtbus_stress 600
-```
-
-To reproduce the benchmarks:
-
-```bash
-cmake --preset release && cmake --build --preset release
-./build/release/bench/rtbus_latency 10000 latency.csv
-python3 bench/plot_latency.py latency.csv latency.png
-./build/release/bench/rtbus_micro
-```
-
-## Project layout
-
-```
-include/rtbus/          public headers
-include/rtbus/detail/   the transport's internals
-src/                    library sources
-tests/                  GoogleTest suites and the stress test
-bench/                  latency harness, microbenchmarks and results
-```
+The `asan` and `tsan` presets run the same tests under the sanitizers. More on the presets and
+the stress test: [docs/design.md](docs/design.md#build-presets).
