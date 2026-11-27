@@ -21,19 +21,6 @@ constexpr auto kRetryInterval = std::chrono::milliseconds(10);
 // notice.
 constexpr auto kLivenessInterval = std::chrono::milliseconds(100);
 
-// SegmentConnection::connect(), but nullptr instead of an exception. On this thread nobody
-// could receive the error: a publisher of another message type, or a topic whose slots all
-// belong to live subscribers, is waited out like a missing publisher.
-std::unique_ptr<SegmentConnection> connect_or_null(const std::string& segment_name,
-                                                   const MessageType& type,
-                                                   std::uint32_t capacity) {
-  try {
-    return SegmentConnection::connect(segment_name, type, capacity);
-  } catch (const std::exception&) {
-    return nullptr;
-  }
-}
-
 void pause_in_spin_loop() {
 #if defined(__x86_64__) || defined(__i386__)
   // Tells the CPU this is a spin loop, which saves power and leaves execution resources to
@@ -89,13 +76,28 @@ void ShmSubscription::run() {
 }
 
 void ShmSubscription::try_to_connect() {
-  std::unique_ptr<SegmentConnection> connection =
-      connect_or_null(segment_name_, type_, options_.queue_capacity);
+  std::unique_ptr<SegmentConnection> connection;
+  try {
+    connection = SegmentConnection::connect(segment_name_, type_, options_.queue_capacity);
+  } catch (const std::exception& error) {
+    // An exception leaving this thread would terminate the program, and the cause may pass
+    // (a full topic, a publisher of another type that is replaced): report it and retry.
+    report_error(error);
+  }
   if (connection != nullptr) {
+    last_error_.clear();
     set_connection(std::move(connection));
   } else {
     wait_before_retrying();
   }
+}
+
+void ShmSubscription::report_error(const std::exception& error) {
+  if (!options_.on_error || last_error_ == error.what()) {
+    return;
+  }
+  last_error_ = error.what();
+  options_.on_error(error);
 }
 
 // Returns when the subscription stops or the publisher goes away. Messages already queued

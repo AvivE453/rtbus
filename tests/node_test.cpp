@@ -184,6 +184,23 @@ TEST(NodeTest, SubscriberWaitsOutAPublisherOfAnotherMessageType) {
   EXPECT_EQ(publisher.subscriber_count(), 0u);
 }
 
+TEST(NodeTest, SubscriberReportsAPublisherOfAnotherMessageTypeOnce) {
+  const auto topic = unique_topic("typed_report");
+  Node node("node");
+  Collector<std::string> errors;
+  SubscriberOptions options;
+  options.on_error = [&](const std::exception& error) { errors.add(error.what()); };
+  auto subscriber = node.subscribe<Pose>(topic, [](const Pose&) {}, options);
+  auto publisher = node.advertise<int>(topic);
+
+  errors.wait_until_count(1);
+  // Five retry intervals: each attempt fails with the same error again.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  EXPECT_EQ(errors.wait_until_count(1),
+            (std::vector<std::string>{"the topic carries a different message type"}));
+}
+
 TEST(NodeTest, SecondPublisherOnATopicIsRejected) {
   const auto topic = unique_topic("single");
   Node node("node");

@@ -26,8 +26,8 @@
 - **Loans:** at most 2 outstanding loans per publisher.
 - **Message types:** trivially copyable, default-constructible structs, aligned to at most 64
   bytes. Both sides must see the same type name, size and alignment. Subscribing to a publisher
-  of another type throws, and a subscriber waiting for its publisher ignores one of another
-  type.
+  of another type throws. A subscriber waiting for its publisher keeps waiting past one of
+  another type, and reports it through `SubscriberOptions::on_error`.
 
 ## Build presets
 

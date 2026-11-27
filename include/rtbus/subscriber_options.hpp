@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <exception>
+#include <functional>
 
 namespace rtbus {
 
@@ -17,6 +19,11 @@ struct SubscriberOptions {
   // replaces the oldest one, which is counted in Subscriber::dropped().
   std::uint32_t queue_capacity = 16;
   WaitMode wait_mode = WaitMode::kSleep;
+  // Called when connecting in the background fails with an error, such as a publisher of
+  // another message type. The subscriber keeps retrying. Runs on the subscriber's thread,
+  // like the message callback, and like it must not throw. Empty by default: errors are not
+  // reported.
+  std::function<void(const std::exception&)> on_error = nullptr;
 };
 
 }  // namespace rtbus

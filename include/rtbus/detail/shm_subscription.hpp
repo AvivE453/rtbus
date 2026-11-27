@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -42,6 +43,8 @@ class ShmSubscription {
  private:
   void run();
   void try_to_connect();
+  // Passes the error to on_error, unless it repeats the last one reported.
+  void report_error(const std::exception& error);
   void receive_until_disconnected(SegmentConnection& connection);
   // False if the queue was empty.
   bool deliver_next(SegmentConnection& connection);
@@ -56,6 +59,9 @@ class ShmSubscription {
   std::atomic<bool> stopping_{false};
   // Wakes the thread while it waits between connection attempts.
   WakeSignal retry_signal_;
+  // The message of the last error reported since the last successful connection. Only the
+  // thread touches it.
+  std::string last_error_;
 
   // Guards replacing connection_ and dropped_before_. The thread reads connection_ without
   // it, since only the thread replaces it; other threads read it only under the mutex.
