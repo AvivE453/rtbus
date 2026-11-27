@@ -117,6 +117,7 @@ TEST(IndexRingTest, ConcurrentPushAndPopHandOutEveryIndexExactlyOnce) {
     evicted_count += evicted[i];
   }
   EXPECT_EQ(ring.dropped(), evicted_count);
+  EXPECT_GT(evicted_count, 0u);
 }
 
 // The ring and the test's own bookkeeping, laid out together in one shared-memory region.
@@ -172,6 +173,7 @@ TEST(IndexRingTest, ProducerAndConsumerInSeparateProcesses) {
   EXPECT_EQ(WEXITSTATUS(status), 0) << "child popped indices out of order";
   EXPECT_EQ(state->popped.load() + evicted, kIndices);
   EXPECT_EQ(state->ring.dropped(), evicted);
+  EXPECT_GT(evicted, 0u);
 }
 
 }  // namespace
