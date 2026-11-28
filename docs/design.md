@@ -23,7 +23,22 @@
 ## Limits
 
 - **Topics:** one publisher and at most 8 subscribers per topic.
-- **Loans:** at most 2 outstanding loans per publisher.
+- **Loans:** at most 2 outstanding loans per publisher. `loan()` does not zero the message: a
+  field without a default member initializer holds whatever an earlier message left in that
+  chunk until it is written. Write every field, or give the fields defaults in the struct.
+- **Received messages:** the message passed to the callback is the chunk in shared memory, and
+  it is valid only during the call. A pointer kept past the callback may later see another
+  message, or one half-written, and reading it is a data race. To keep a message, copy it
+  inside the callback:
+
+  ```cpp
+  std::mutex mutex;
+  Pose latest;
+  auto subscriber = node.subscribe<Pose>("pose", [&](const Pose& pose) {
+    std::lock_guard<std::mutex> lock(mutex);
+    latest = pose;  // read `latest` elsewhere under the same mutex
+  });
+  ```
 - **Message types:** trivially copyable, default-constructible structs, aligned to at most 64
   bytes. Both sides must see the same type name, size and alignment. Subscribing to a publisher
   of another type throws. A subscriber waiting for its publisher keeps waiting past one of
