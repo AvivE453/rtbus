@@ -1,14 +1,8 @@
 #include "rtbus/detail/byte_lock.hpp"
 
 #include <gtest/gtest.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
-#include <atomic>
-#include <csignal>
-#include <new>
-#include <thread>
-
+#include "doomed_child.hpp"
 #include "rtbus/shared_memory_region.hpp"
 #include "unique_shm_name.hpp"
 
@@ -63,29 +57,18 @@ TEST(ByteLockTest, ClosingTheDescriptorReleasesItsLocks) {
 // kernel still releases the dead process's locks.
 TEST(ByteLockTest, KilledProcessLosesItsLock) {
   auto region = SharedMemoryRegion::create(test_support::unique_shm_name(), 64);
-  auto* child_locked = new (region.data()) std::atomic<bool>(false);
-
-  const pid_t pid = ::fork();
-  ASSERT_NE(pid, -1);
-  if (pid == 0) {
+  test_support::DoomedChild child([&](test_support::DoomedChild& self) {
     auto own = SharedMemoryRegion::open(region.name());
-    if (try_lock_byte(own.fd(), 2)) {
-      child_locked->store(true);
+    if (!try_lock_byte(own.fd(), 2)) {
+      return;
     }
-    while (true) {
-      ::pause();  // wait to be killed
-    }
-  }
+    self.report();
+    test_support::wait_to_be_killed();
+  });
 
-  while (!child_locked->load()) {
-    std::this_thread::yield();
-  }
+  ASSERT_TRUE(child.wait_for_report()) << "the child could not lock the byte";
   EXPECT_TRUE(is_byte_locked(region.fd(), 2));
-
-  ASSERT_EQ(::kill(pid, SIGKILL), 0);
-  int status = 0;
-  ASSERT_EQ(::waitpid(pid, &status, 0), pid);
-
+  child.kill();
   EXPECT_FALSE(is_byte_locked(region.fd(), 2));
 }
 
