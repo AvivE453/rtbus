@@ -146,6 +146,21 @@ TEST(NodeTest, LoanCanOnlyBePublishedByItsOwnPublisher) {
   EXPECT_THROW(second.publish(first.loan()), std::invalid_argument);
 }
 
+TEST(NodeTest, PublishingALoanTwiceSaysItWasAlreadyPublished) {
+  Node node("node");
+  auto publisher = node.advertise<int>(unique_topic("twice"));
+  auto loan = publisher.loan();
+  publisher.publish(std::move(loan));
+
+  try {
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
+    publisher.publish(std::move(loan));
+    FAIL() << "publishing a loan twice did not throw";
+  } catch (const std::invalid_argument& error) {
+    EXPECT_STREQ(error.what(), "rtbus: the loan was already published or moved from");
+  }
+}
+
 TEST(NodeTest, TopicsDoNotLeakIntoEachOther) {
   const auto topic_a = unique_topic("a");
   const auto topic_b = unique_topic("b");

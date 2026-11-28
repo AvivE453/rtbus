@@ -40,6 +40,9 @@ class Publisher {
   }
 
   void publish(Loan<T>&& loan) {
+    if (loan.publisher_ == nullptr) {
+      throw std::invalid_argument("rtbus: the loan was already published or moved from");
+    }
     if (loan.publisher_ != core_.get()) {
       throw std::invalid_argument("rtbus: a loan can only be published by its own publisher");
     }
